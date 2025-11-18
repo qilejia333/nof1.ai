@@ -1,17 +1,17 @@
 /**
  * open-nof1.ai - AI 加密货币自动交易系统
  * Copyright (C) 2025 195440
- * 
+ *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Affero General Public License as published by
  * the Free Software Foundation, either version 3 of the License, or
  * (at your option) any later version.
- * 
+ *
  * This program is distributed in the hope that it will be useful,
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
  * GNU Affero General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU Affero General Public License
  * along with this program. If not, see <https://www.gnu.org/licenses/>.
  */
@@ -42,16 +42,16 @@ export class OkxClient {
     this.apiKey = apiKey;
     this.apiSecret = apiSecret;
     this.passphrase = passphrase;
-    
+
     // OKX 测试网和正式网使用相同的域名，通过 header 区分
     this.baseUrl = "https://www.okx.com";
-    
+
     // 根据环境变量决定使用测试网还是正式网
     this.isTestnet = process.env.OKX_USE_TESTNET === "true";
-    
+
     // 是否使用 WebSocket 获取行情数据（默认开启）
     this.useWebSocket = process.env.OKX_USE_WEBSOCKET !== "false";
-    
+
     if (this.isTestnet) {
       logger.info("使用 OKX 测试网 (x-simulated-trading: 1)");
     } else {
@@ -103,7 +103,7 @@ export class OkxClient {
     body?: Record<string, any>
   ): Promise<any> {
     const timestamp = new Date().toISOString();
-    
+
     // 构建查询字符串
     let queryString = "";
     if (params && Object.keys(params).length > 0) {
@@ -116,11 +116,11 @@ export class OkxClient {
         }, {} as Record<string, string>)
       ).toString();
     }
-    
+
     const requestPath = endpoint + queryString;
     const bodyStr = body ? JSON.stringify(body) : "";
     const sign = this.sign(timestamp, method, requestPath, bodyStr);
-    
+
     // 构建请求头
     const headers: Record<string, string> = {
       "OK-ACCESS-KEY": this.apiKey,
@@ -129,23 +129,23 @@ export class OkxClient {
       "OK-ACCESS-PASSPHRASE": this.passphrase,
       "Content-Type": "application/json",
     };
-    
+
     // 测试网标识
     if (this.isTestnet) {
       headers["x-simulated-trading"] = "1";
     }
-    
+
     const url = this.baseUrl + requestPath;
-    
+
     try {
       const response = await fetch(url, {
         method,
         headers,
         body: bodyStr || undefined,
       });
-      
+
       const data = await response.json();
-      
+
       // 记录详细的请求和响应信息（仅在出错时）
       if (data.code !== "0") {
         logger.error(`OKX API 错误响应: ${method} ${endpoint}`, {
@@ -156,7 +156,7 @@ export class OkxClient {
           httpStatus: response.status,
         });
       }
-      
+
       // OKX API 返回格式: {code, msg, data}
       if (data.code !== "0") {
         // 如果有详细的错误数据，提取出来
@@ -169,7 +169,7 @@ export class OkxClient {
         }
         throw new Error(`OKX API Error: ${detailedError} (code: ${data.code})`);
       }
-      
+
       return data.data;
     } catch (error: any) {
       logger.error(`OKX API 请求失败: ${method} ${endpoint}`, error);
@@ -201,21 +201,21 @@ export class OkxClient {
    */
   async getFuturesTicker(contract: string, retries: number = 2): Promise<any> {
     const instId = this.toOkxContract(contract);
-    
+
     // 尝试使用 WebSocket
     if (this.useWebSocket) {
       try {
         const wsClient = getOkxWebSocketClient();
-        
+
         // 检查缓存
         let ticker = wsClient.getCachedTicker(instId);
-        
+
         if (!ticker) {
           // 订阅并等待数据
           await wsClient.subscribe("tickers", instId);
           ticker = await wsClient.waitForTicker(instId, 3000);
         }
-        
+
         if (ticker) {
           // 转换为 Gate 格式的返回值
           return {
@@ -233,7 +233,7 @@ export class OkxClient {
         logger.warn(`WebSocket 获取 ${contract} 价格失败，降级到 REST API:`, error);
       }
     }
-    
+
     // 降级到 REST API
     let lastError: any;
     for (let i = 0; i <= retries; i++) {
@@ -241,13 +241,13 @@ export class OkxClient {
         const data = await this.request("GET", "/api/v5/market/ticker", {
           instId,
         });
-        
+
         if (!data || data.length === 0) {
           throw new Error("No ticker data returned");
         }
-        
+
         const ticker = data[0];
-        
+
         // 转换为 Gate 格式的返回值
         return {
           contract,
@@ -267,7 +267,7 @@ export class OkxClient {
         }
       }
     }
-    
+
     logger.error(`获取 ${contract} 价格失败（${retries}次重试）:`, lastError);
     throw lastError;
   }
@@ -283,13 +283,13 @@ export class OkxClient {
     retries: number = 2
   ): Promise<any[]> {
     const instId = this.toOkxContract(contract);
-    
+
     // 转换时间周期格式: Gate (5m) -> OKX (5m)
     // OKX 支持: 1m, 3m, 5m, 15m, 30m, 1H, 2H, 4H, 6H, 12H, 1D, 1W, 1M
     let bar = interval;
     if (interval === "1h") bar = "1H";
     else if (interval === "4h") bar = "4H";
-    
+
     // K线数据直接使用 REST API，避免 WebSocket 复杂性
     // WebSocket 主要用于实时 ticker 推送
     let lastError: any;
@@ -300,7 +300,7 @@ export class OkxClient {
           bar,
           limit: Math.min(limit, 300), // OKX 最大 300
         });
-        
+
         // OKX K线格式: [ts, o, h, l, c, vol, volCcy, volCcyQuote, confirm]
         // 转换为 Gate 格式: {t, o, h, l, c, v, sum}
         return data.map((candle: string[]) => ({
@@ -320,7 +320,7 @@ export class OkxClient {
         }
       }
     }
-    
+
     logger.error(`获取 ${contract} K线数据失败（${retries}次重试）:`, lastError);
     throw lastError;
   }
@@ -330,26 +330,26 @@ export class OkxClient {
    */
   async getFuturesAccount(retries: number = 2): Promise<any> {
     let lastError: any;
-    
+
     for (let i = 0; i <= retries; i++) {
       try {
         const data = await this.request("GET", "/api/v5/account/balance");
-        
+
         if (!data || data.length === 0) {
           throw new Error("No account data returned");
         }
-        
+
         const account = data[0];
         const usdtDetail = account.details?.find((d: any) => d.ccy === "USDT");
-        
+
         if (!usdtDetail) {
           throw new Error("USDT account not found");
         }
-        
+
         // 转换为 Gate 格式
         return {
           currency: "USDT",
-          total: usdtDetail.eq, // 币种总权益
+          total: usdtDetail.availBal, // 币种总权益
           available: usdtDetail.availBal, // 可用保证金
           positionMargin: usdtDetail.frozenBal, // 持仓占用保证金
           orderMargin: usdtDetail.ordFrozen || "0", // 挂单占用保证金
@@ -365,7 +365,7 @@ export class OkxClient {
         }
       }
     }
-    
+
     logger.error(`获取账户余额失败（${retries}次重试）:`, lastError);
     throw lastError;
   }
@@ -375,19 +375,19 @@ export class OkxClient {
    */
   async getPositions(retries: number = 2): Promise<any[]> {
     let lastError: any;
-    
+
     for (let i = 0; i <= retries; i++) {
       try {
         const data = await this.request("GET", "/api/v5/account/positions", {
           instType: "SWAP",
         });
-        
+
         // 过滤：只保留允许的币种
         const allowedSymbols = RISK_PARAMS.TRADING_SYMBOLS;
-        
+
         // 记录原始持仓数据（用于调试）
         if (data && data.length > 0) {
-          logger.info(`OKX 原始持仓数据 (${data.length} 个):`, 
+          logger.info(`OKX 原始持仓数据 (${data.length} 个):`,
             data.slice(0, 3).map((p: any) => ({
               instId: p.instId,
               pos: p.pos,
@@ -399,7 +399,7 @@ export class OkxClient {
             }))
           );
         }
-        
+
         const filteredPositions = data
           ?.filter((p: any) => {
             const gateContract = this.toGateContract(p.instId);
@@ -408,7 +408,7 @@ export class OkxClient {
           })
           .map((p: any) => {
             const gateContract = this.toGateContract(p.instId);
-            
+
             // OKX 使用双向持仓模式
             // posSide: long/short/net
             // pos: 持仓数量（正数）
@@ -417,14 +417,14 @@ export class OkxClient {
             if (p.posSide === "short") {
               size = -size;
             }
-            
+
             // 计算开仓价值（保证金）
             // OKX: notionalUsd = 持仓价值（USD）, margin = 保证金余额
             // 保证金 = 持仓价值 / 杠杆
             const notionalUsd = parseFloat(p.notionalUsd || "0");
             const leverage = parseFloat(p.lever || "1");
             const marginValue = notionalUsd / leverage;
-            
+
             const result = {
               contract: gateContract,
               size: size.toString(),
@@ -437,7 +437,7 @@ export class OkxClient {
               margin: marginValue.toString(), // 使用计算的保证金
               notionalUsd: p.notionalUsd, // 持仓价值（USD）
             };
-            
+
             // 记录转换后的数据
             logger.debug(`持仓转换: ${gateContract}`, {
               原始notionalUsd: p.notionalUsd,
@@ -445,10 +445,10 @@ export class OkxClient {
               计算保证金: marginValue,
               未实现盈亏: p.upl,
             });
-            
+
             return result;
           }) || [];
-        
+
         return filteredPositions;
       } catch (error) {
         lastError = error;
@@ -458,7 +458,7 @@ export class OkxClient {
         }
       }
     }
-    
+
     logger.error(`获取持仓失败（${retries}次重试）:`, lastError);
     throw lastError;
   }
@@ -471,19 +471,19 @@ export class OkxClient {
     if (this.positionModeSet) {
       return;
     }
-    
+
     try {
       logger.info(`设置持仓模式为: ${posMode}`);
-      
+
       const data = await this.request("POST", "/api/v5/account/set-position-mode", undefined, {
         posMode,
       });
-      
+
       logger.info("持仓模式设置成功");
       this.positionModeSet = true;
     } catch (error: any) {
       // 如果已经设置过，可能会报错，这是正常的
-      if (error.message.includes("Position mode is already") || 
+      if (error.message.includes("Position mode is already") ||
           error.message.includes("59120") || // OKX 错误码：持仓模式已存在
           error.message.includes("59121")) { // OKX 错误码：有持仓时不能修改
         logger.info("持仓模式已经设置，跳过");
@@ -509,31 +509,31 @@ export class OkxClient {
     takeProfit?: number;
   }): Promise<any> {
     const instId = this.toOkxContract(params.contract);
-    
+
     // 验证 size 参数
     if (params.size === 0 || !Number.isFinite(params.size)) {
       throw new Error(`Invalid order size: ${params.size}. Size must be a non-zero finite number.`);
     }
-    
+
     try {
       // 首次下单前确保持仓模式已设置（双向持仓）
       // 这个调用会被缓存，不会重复设置
       await this.setPositionMode("long_short_mode");
       // 确定订单方向和持仓方向
       const side = params.size > 0 ? "buy" : "sell";
-      const posSide = params.reduceOnly 
+      const posSide = params.reduceOnly
         ? (params.size > 0 ? "short" : "long") // 平仓时方向相反
         : (params.size > 0 ? "long" : "short"); // 开仓时方向一致
-      
+
       // OKX 订单类型
       let ordType = "market";
       let px = "";
-      
+
       if (params.price && params.price > 0) {
         ordType = "limit";
         px = params.price.toString();
       }
-      
+
       // 构建订单参数
       const order: any = {
         instId,
@@ -543,16 +543,16 @@ export class OkxClient {
         ordType,
         sz: Math.abs(params.size).toString(),
       };
-      
+
       if (ordType === "limit") {
         order.px = px;
       }
-      
+
       // 平仓标识
       if (params.reduceOnly) {
         order.reduceOnly = true;
       }
-      
+
       logger.info(`OKX 下单请求:`, {
         contract: params.contract,
         instId,
@@ -561,25 +561,25 @@ export class OkxClient {
         reduceOnly: params.reduceOnly,
         orderParams: order,
       });
-      
+
       const data = await this.request("POST", "/api/v5/trade/order", undefined, order);
-      
+
       if (!data || data.length === 0) {
         throw new Error("No order response");
       }
-      
+
       const result = data[0];
-      
+
       logger.info(`OKX 下单响应:`, {
         ordId: result.ordId,
         sCode: result.sCode,
         sMsg: result.sMsg,
       });
-      
+
       if (result.sCode !== "0") {
         throw new Error(`Order failed: ${result.sMsg} (code: ${result.sCode})`);
       }
-      
+
       // 转换为 Gate 格式
       return {
         id: result.ordId,
@@ -603,7 +603,7 @@ export class OkxClient {
   async getOrder(orderId: string, contract?: string): Promise<any> {
     try {
       let order: any = null;
-      
+
       if (contract) {
         // 如果提供了合约名称，直接查询（OKX API 要求同时提供 instId 和 ordId）
         const instId = this.toOkxContract(contract);
@@ -611,7 +611,7 @@ export class OkxClient {
           instId,
           ordId: orderId,
         });
-        
+
         if (!data || data.length === 0) {
           throw new Error("Order not found");
         }
@@ -619,49 +619,49 @@ export class OkxClient {
       } else {
         // 如果没有提供合约名称，先从未完成订单中查找
         logger.debug(`未提供合约名称，从订单列表中查找订单 ${orderId}`);
-        
+
         const openOrders = await this.getOpenOrders();
         order = openOrders.find((o: any) => o.id === orderId);
-        
+
         // 如果未完成订单中找不到，再从历史订单中查找（最近100条）
         if (!order) {
           logger.debug(`未完成订单中未找到，查询历史订单`);
           const historyOrders = await this.getOrderHistory(undefined, 100);
           order = historyOrders.find((o: any) => o.id === orderId);
         }
-        
+
         if (!order) {
           throw new Error("Order not found in open orders or recent history");
         }
-        
+
         // 如果从列表中找到，已经是转换后的格式，直接返回
         return order;
       }
-      
+
       // 转换原始 OKX 订单格式为统一格式
       const gateContract = this.toGateContract(order.instId);
-      
+
       // OKX 订单状态: live, partially_filled, filled, canceled
       let status = "open";
       if (order.state === "filled") status = "finished";
       else if (order.state === "canceled") status = "cancelled";
-      
+
       // 计算已成交数量
       const totalSize = parseFloat(order.sz || "0");
       const filledSize = parseFloat(order.accFillSz || "0");
       const leftSize = totalSize - filledSize;
-      
+
       // 转换为 Gate 格式（带符号的 size）
       let size = totalSize;
       if (order.side === "sell") {
         size = -size;
       }
-      
+
       let left = leftSize;
       if (order.side === "sell") {
         left = -left;
       }
-      
+
       return {
         id: order.ordId,
         contract: gateContract,
@@ -687,22 +687,22 @@ export class OkxClient {
       // 需要先获取订单信息以获取 instId
       const orderInfo = await this.getOrder(orderId);
       const instId = this.toOkxContract(orderInfo.contract);
-      
+
       const data = await this.request("POST", "/api/v5/trade/cancel-order", undefined, {
         instId,
         ordId: orderId,
       });
-      
+
       if (!data || data.length === 0) {
         throw new Error("Cancel order failed");
       }
-      
+
       const result = data[0];
-      
+
       if (result.sCode !== "0") {
         throw new Error(`Cancel failed: ${result.sMsg}`);
       }
-      
+
       return {
         id: result.ordId,
         status: "cancelled",
@@ -721,26 +721,26 @@ export class OkxClient {
       const params: any = {
         instType: "SWAP",
       };
-      
+
       if (contract) {
         params.instId = this.toOkxContract(contract);
       }
-      
+
       const data = await this.request("GET", "/api/v5/trade/orders-pending", params);
-      
+
       return (data || []).map((order: any) => {
         const gateContract = this.toGateContract(order.instId);
-        
+
         let size = parseFloat(order.sz || "0");
         if (order.side === "sell") {
           size = -size;
         }
-        
+
         let left = parseFloat(order.sz || "0") - parseFloat(order.accFillSz || "0");
         if (order.side === "sell") {
           left = -left;
         }
-        
+
         return {
           id: order.ordId,
           contract: gateContract,
@@ -764,25 +764,25 @@ export class OkxClient {
   async setLeverage(contract: string, leverage: number): Promise<any> {
     try {
       const instId = this.toOkxContract(contract);
-      
+
       logger.info(`设置 ${contract} 杠杆为 ${leverage}x`);
-      
+
       const data = await this.request("POST", "/api/v5/account/set-leverage", undefined, {
         instId,
         lever: leverage.toString(),
         mgnMode: "cross", // 全仓模式
       });
-      
+
       if (!data || data.length === 0) {
         throw new Error("Set leverage failed");
       }
-      
+
       const result = data[0];
-      
+
       if (result.sCode !== "0") {
         throw new Error(`Set leverage failed: ${result.sMsg}`);
       }
-      
+
       return {
         leverage: result.lever,
       };
@@ -798,17 +798,17 @@ export class OkxClient {
   async getFundingRate(contract: string): Promise<any> {
     try {
       const instId = this.toOkxContract(contract);
-      
+
       const data = await this.request("GET", "/api/v5/public/funding-rate", {
         instId,
       });
-      
+
       if (!data || data.length === 0) {
         throw new Error("No funding rate data");
       }
-      
+
       const fundingRate = data[0];
-      
+
       return {
         r: fundingRate.fundingRate,
         t: parseInt(fundingRate.fundingTime) / 1000,
@@ -825,18 +825,18 @@ export class OkxClient {
   async getContractInfo(contract: string): Promise<any> {
     try {
       const instId = this.toOkxContract(contract);
-      
+
       const data = await this.request("GET", "/api/v5/public/instruments", {
         instType: "SWAP",
         instId,
       });
-      
+
       if (!data || data.length === 0) {
         throw new Error("Contract not found");
       }
-      
+
       const info = data[0];
-      
+
       // 转换为 Gate 格式
       return {
         name: contract,
@@ -859,7 +859,7 @@ export class OkxClient {
       const data = await this.request("GET", "/api/v5/public/instruments", {
         instType: "SWAP",
       });
-      
+
       return (data || [])
         .filter((inst: any) => inst.instId.endsWith("-USDT-SWAP"))
         .map((inst: any) => {
@@ -883,18 +883,18 @@ export class OkxClient {
   async getOrderBook(contract: string, limit: number = 10): Promise<any> {
     try {
       const instId = this.toOkxContract(contract);
-      
+
       const data = await this.request("GET", "/api/v5/market/books", {
         instId,
         sz: Math.min(limit, 400).toString(),
       });
-      
+
       if (!data || data.length === 0) {
         throw new Error("No order book data");
       }
-      
+
       const book = data[0];
-      
+
       // OKX 格式: [price, size, deprecated, orders]
       // 转换为 Gate 格式: {p: price, s: size}
       return {
@@ -922,13 +922,13 @@ export class OkxClient {
         instType: "SWAP",
         limit: Math.min(limit, 100).toString(),
       };
-      
+
       if (contract) {
         params.instId = this.toOkxContract(contract);
       }
-      
+
       const data = await this.request("GET", "/api/v5/trade/fills", params);
-      
+
       return (data || []).map((trade: any) => {
         const gateContract = this.toGateContract(trade.instId);
         return {
@@ -956,14 +956,14 @@ export class OkxClient {
         instType: "SWAP",
         limit: Math.min(limit, 100).toString(),
       };
-      
+
       if (contract) {
         params.instId = this.toOkxContract(contract);
       }
-      
+
       // OKX 使用 positions-history API
       const data = await this.request("GET", "/api/v5/account/positions-history", params);
-      
+
       return (data || []).map((pos: any) => {
         const gateContract = this.toGateContract(pos.instId);
         return {
@@ -997,21 +997,21 @@ export class OkxClient {
         limit: Math.min(limit, 100).toString(),
         state: "filled",
       };
-      
+
       if (contract) {
         params.instId = this.toOkxContract(contract);
       }
-      
+
       const data = await this.request("GET", "/api/v5/trade/orders-history", params);
-      
+
       return (data || []).map((order: any) => {
         const gateContract = this.toGateContract(order.instId);
-        
+
         let size = parseFloat(order.sz || "0");
         if (order.side === "sell") {
           size = -size;
         }
-        
+
         return {
           id: order.ordId,
           contract: gateContract,
